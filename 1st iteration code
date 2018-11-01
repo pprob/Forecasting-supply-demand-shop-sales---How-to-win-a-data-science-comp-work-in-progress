@@ -1,0 +1,118 @@
+#Kaggle - how to win a data science competition
+#predicting items sold in month following 33 month data
+# remember to clip 0-20 as specified in ruleset
+
+# Import libraries
+import pandas as pd
+"""import pandas_profiling"""
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import math
+
+#import datasets
+item_categories = pd.read_csv('item_categories.csv')
+items = pd.read_csv('items.csv')
+training_data = pd.read_csv('sales_train_v2.csv')
+shops = pd.read_csv('shops.csv')
+test_data = pd.read_csv('test_set.csv')
+sample_submission = pd.read_csv('sample_submission_.csv')
+
+training_data.tail(50)
+
+print('Train cols:', training_data.columns, 'Test cols:', test_data.columns)
+
+#handle mutual train and test data at same time
+cleaner = [training_data, test_data]
+
+#Merging items, item cat and shops with train and test set
+#training set
+train = pd.merge(training_data, shops, on = 'shop_id', how = 'left')
+train = pd.merge(train, items, on = 'item_id', how = 'left')
+train = pd.merge(train, item_categories, on = 'item_category_id', how = 'left')
+
+#test set
+test = pd.merge(test_data, items, on = 'item_id', how = 'left')
+test = pd.merge(test, item_categories, on = 'item_category_id', how = 'left')
+test = pd.merge(test, shops, on = 'shop_id', how = 'left')
+
+#adding date features to train and test set
+#training set
+train['date'] = pd.to_datetime(train['date'], format = '%d.%m.%Y')
+train['month'] = train['date'].dt.month
+train['year'] = train['date'].dt.year
+train = train.drop(['date'], axis = 1)
+#test set
+test['month'] = 11
+test['year'] = 2015
+test['date_block_num'] = 34 
+
+"""profile_train = pandas_profiling.ProfileReport(train)"""
+
+# Missing values
+train.isnull().sum()
+train.info()
+
+test.isnull().sum()
+test.info()
+#test description not relevant at this stage
+train_descrip = train.describe()
+test_descrip = test.describe()
+#min item count -22 (impossible), max item price 307980 (outlier?), min item price -1 (outlier)
+#no missing values to deal with 
+
+# Aggregating item count from days to month given item and shop
+#training set aggregation
+train = train.groupby([col for col in train.columns if col not in ['item_cnt_day']], as_index = False)['item_cnt_day'].sum()
+train = train.rename(columns = {'item_cnt_day' : 'item_cnt_month'})
+
+#adding monthly mean
+#train
+item_monthly_mean = train[['item_cnt_month', 'shop_id', 'item_id']].groupby(['shop_id', 'item_id'], as_index = False)['item_cnt_month'].mean()
+item_monthly_mean = item_monthly_mean.rename(columns = {'item_cnt_month' : 'mean_item_cnt_month'})
+train = pd.merge(train, item_monthly_mean, on = ['shop_id', 'item_id'], how = 'left')
+
+#test set
+test = pd.merge(test, item_monthly_mean, on = ['shop_id', 'item_id'], how = 'left')
+test.isnull().sum() # 102796 NaN
+test['mean_item_cnt_month'] = test['mean_item_cnt_month'].fillna(0.) #0. for float rather than int
+#add item_cnt_month to test set to be predicted
+test['item_cnt_month'] = 0
+
+"""#First iteration model - removing categorical variables
+#dropping categorical columns
+drop_cat_cols = ['item_name', 'item_category_name', 'shop_name']
+
+#X & Y - clip target values between 0-20 as specified in project handout on kaggle
+X = train.drop(drop_cat_cols, axis = 1)
+X = X.drop(['item_cnt_month'], axis = 1)
+y = train['item_cnt_month'].clip(0, 20)
+   
+#Splitting training set into a two separate data sets - 1 for training, 1 for testing
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.3)
+
+#XGBoost regressor - not working python 3.7
+#Boosted decision trees
+from sklearn.ensemble import GradientBoostingRegressor
+gbr = GradientBoostingRegressor()
+gbr.fit(X_train, y_train)
+
+y_pred = gbr.predict(X_test)
+
+#Evaluating 1st iteration model using RMSE
+from sklearn.metrics import mean_squared_error
+first_iter_gbr_mse = mean_squared_error(y_true = y_test, y_pred = y_pred) 
+first_iter_gbr_rmse = np.sqrt(first_iter_gbr_mse)
+
+#1st iteration model - test set
+X = X.drop(['item_price'], axis = 1)
+col = [c for c in X.columns if c not in['item_cnt_month', 'item_price']]
+gbr.fit(X, y.clip(0, 20.))
+
+test['item_cnt_month'] = gbr.predict(test[col]).clip(0, 20.)
+
+#Submission file - 1st iteration
+test[['ID', 'item_cnt_month']].to_csv('submission1.csv', index = False)"""
+
+#2nd iteration model - vectorize text data
